@@ -7,7 +7,7 @@
 // render() ordering bug tends to break, and that pure unit tests of individual functions can't see.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadBuiltDist } = require('../helpers/loadApp.js');
+const { loadBuiltDist } = require('../../test-support/loadApp.js');
 
 let win, document;
 

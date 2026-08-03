@@ -3,7 +3,7 @@
 // bounds themselves are exact assertions about the parsing/clamping logic, not vibes.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadFlattenedApp } = require('../helpers/loadApp.js');
+const { loadFlattenedApp } = require('../../test-support/loadApp.js');
 
 let win;
 before(() => { win = loadFlattenedApp(); });

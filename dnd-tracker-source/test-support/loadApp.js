@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const ROOT = path.join(__dirname, '..', '..');
+const ROOT = path.join(__dirname, '..');
 const JS_DIR = path.join(ROOT, 'js');
 const DIST_FILE = path.join(ROOT, 'dist', 'dnd-campaign-tracker.html');
 

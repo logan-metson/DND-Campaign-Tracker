@@ -5,7 +5,7 @@
 // that specific guarantee, not just to exercise the code.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadFlattenedApp } = require('../helpers/loadApp.js');
+const { loadFlattenedApp } = require('../../test-support/loadApp.js');
 
 // Arrays returned by app functions belong to the jsdom window's realm, not this file's — strict
 // deepEqual treats same-shape arrays from different realms as unequal, so results get rehomed via
