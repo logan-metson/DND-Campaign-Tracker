@@ -50,6 +50,10 @@ node build.js
 Produces `dist/dnd-campaign-tracker.html`. No npm install, no packages,
 no config — `build.js` only uses Node's built-in `fs`/`path` modules.
 
+On macOS, double-click **`Open Campaign Tracker.command`** in this folder
+instead of using the terminal — it rebuilds from current source and opens
+the result in your default browser in one step.
+
 ## The rule
 
 **Never hand-edit `dist/dnd-campaign-tracker.html` directly.** It's a
