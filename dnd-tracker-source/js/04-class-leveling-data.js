@@ -274,6 +274,13 @@ function currentCombatRef(camp){
 function onNewCombatRound(camp){
   (camp.enemies||[]).forEach(en=>{ if((en.legendaryActionsMax||0) > 0) en.legendaryActionsUsed = 0; });
 }
+// Action/bonus action refresh at the start of THIS combatant's own turn (not tied to round
+// boundaries — see advanceCombatTurn and start-combat, the only two places a turn actually begins).
+function resetActionEconomy(ref){
+  if(!ref) return;
+  ref.actionUsed = false;
+  ref.bonusActionUsed = false;
+}
 // Moves the turn pointer forward (dir=1) or back (dir=-1), rolling over into the next/previous
 // round at the ends of the order. Skips past any combatant that's been removed since combat
 // started (currentCombatRef returns null for them) and past any enemy that's since died or fled
@@ -293,6 +300,15 @@ function advanceCombatTurn(camp, dir){
     guard++;
     cur = currentCombatRef(camp);
   } while((!cur || (cur.kind==='enemy' && cur.ref.status!=='alive')) && guard <= n+1);
+  if(cur) resetActionEconomy(cur.ref);
+}
+// Only tracks action economy for whoever the combat tracker currently has "up" — an attack/cast
+// made outside anyone's active turn (no combat running, or off-turn) doesn't touch these flags at
+// all, since there's no turn for it to be accidentally-double-spent against.
+function markTurnActionUsed(camp, entity, isBonusAction){
+  const cur = currentCombatRef(camp);
+  if(!cur || cur.ref !== entity) return;
+  if(isBonusAction) entity.bonusActionUsed = true; else entity.actionUsed = true;
 }
 
 function enemyFromPreset(preset, label){

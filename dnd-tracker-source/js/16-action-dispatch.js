@@ -240,6 +240,12 @@ async function onClick(e){
     const bonus = spellAttackBonus(ch), dc = spellSaveDC(ch);
     if(bonus===null){ showToast(`${ch.name} has no spellcasting ability set (see Spellcasting card).`); return; }
 
+    // Every remaining path below actually completes the cast — mark action economy once here rather
+    // than at each of the branches' individual consumeResource() calls. Bonus-action spells (e.g.
+    // Healing Word) are read from the SRD castingTime field; anything without SRD data (homebrew/
+    // custom spells) defaults to the Action, same as a normal attack.
+    markTurnActionUsed(c, ch, !!(meta && meta.castingTime && meta.castingTime.includes('bonus action')));
+
     const dmgFormula = spellDamageForCast(meta, castLevel, ch.level);
     const hasSave = !!(meta && meta.saveAbility);
 
@@ -375,6 +381,7 @@ async function onClick(e){
       hitNote = ` vs ${targetLabel}'s AC ${target.ac} — ${isHit?'HIT':'MISS'}`;
     }
     state.diceLog.unshift({ id: uid('roll'), timestamp: Date.now(), label: `${ch.name} — ${it.name||'weapon'} (to hit${hitNote})`, total: attackTotal, breakdown: `${detail} ${fmtMod(bonus)}` });
+    markTurnActionUsed(c, ch, false); // weapon attacks always cost the Action — toggle it back manually for an off-turn or extra-attack swing
     if(isHit===false){
       showToast(`${it.name||'Attack'} misses ${targetLabel}.`);
       persistDiceLog();
@@ -862,11 +869,22 @@ async function onClick(e){
     if(!ordered.length){ showToast('Roll initiative for at least one combatant first.'); return; }
     onNewCombatRound(c); // fresh fight, fresh legendary-action pools
     c.combat = { round: 1, turnIndex: 0, order: ordered.map(({kind,ref})=>({id:ref.id, kind, name:ref.name})) };
+    resetActionEconomy(ordered[0].ref);
     showToast(`Combat started — round 1, ${ordered[0].ref.name}'s turn.`);
     render();
   }
   else if(action==='next-turn'){ advanceCombatTurn(c, 1); render(); }
   else if(action==='prev-turn'){ advanceCombatTurn(c, -1); render(); }
+  else if(action==='toggle-current-action'){
+    const cur = currentCombatRef(c);
+    if(cur) cur.ref.actionUsed = !cur.ref.actionUsed;
+    render();
+  }
+  else if(action==='toggle-current-bonus-action'){
+    const cur = currentCombatRef(c);
+    if(cur) cur.ref.bonusActionUsed = !cur.ref.bonusActionUsed;
+    render();
+  }
   else if(action==='end-combat'){ c.combat = null; render(); }
 
   else if(action==='add-enemy-attack'){
@@ -885,6 +903,7 @@ async function onClick(e){
     const atk = en.attacks[ai];
     ensureAttackFields(atk);
     if(atk.recharge!=null && !atk.rechargeAvailable){ showToast(`${atk.name||'That attack'} hasn't recharged yet.`); return; }
+    markTurnActionUsed(c, en, false); // enemy attacks are treated as the Action, same simplification as PC weapon attacks
 
     // Resolve the chosen target (if any) to its live character/NPC object.
     let target = null, targetLabel = '';

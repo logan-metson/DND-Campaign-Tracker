@@ -95,6 +95,62 @@ function renderEnemies(){
   `;
 }
 
+// The full attack row (roll type, save/to-hit fields, target picker, recharge) — shared between the
+// enemy sheet's Attacks card (js/11) and the Battle Console (js/14a), so there's exactly one place
+// that builds it, never two copies to drift apart.
+function renderEnemyAttackRow(en, idx, atk, i){
+  ensureAttackFields(atk);
+  const base = `enemies.${idx}`;
+  const targetableChars = state.campaign.characters||[];
+  const targetableNpcs = (state.campaign.npcs||[]).filter(n=>n.hasCombatStats);
+  const rechargeSet = atk.recharge != null;
+  const canFire = !rechargeSet || atk.rechargeAvailable;
+  const isSave = atk.attackType==='save';
+  const targetOptions = `
+    <option value="">— no target (just roll) —</option>
+    ${targetableChars.length ? `<optgroup label="Party">${targetableChars.map(pc=>`<option value="pc:${pc.id}" ${atk.targetKind==='pc'&&atk.targetId===pc.id?'selected':''}>${escapeHtml(pc.name)} (AC ${effectiveAC(pc)})</option>`).join('')}</optgroup>` : ''}
+    ${targetableNpcs.length ? `<optgroup label="NPCs">${targetableNpcs.map(npc=>`<option value="npc:${npc.id}" ${atk.targetKind==='npc'&&atk.targetId===npc.id?'selected':''}>${escapeHtml(npc.name)} (AC ${npc.ac})</option>`).join('')}</optgroup>` : ''}
+  `;
+  return `
+  <div class="item-row" style="flex-wrap:wrap;">
+    <input type="text" data-bind="${base}.attacks.${i}.name" data-type="text" value="${escapeAttr(atk.name)}" placeholder="Attack name" style="flex:2;min-width:110px;">
+    <select data-bind="${base}.attacks.${i}.attackType" data-type="text" style="width:110px;" title="Attack roll vs AC, or the target rolls a saving throw (e.g. most spell attacks)">
+      <option value="attack" ${!isSave?'selected':''}>Attack roll</option>
+      <option value="save" ${isSave?'selected':''}>Saving throw</option>
+    </select>
+    ${isSave ? `
+      <select data-bind="${base}.attacks.${i}.saveAbility" data-type="text" style="width:66px;" title="Which save the target rolls">
+        ${['str','dex','con','int','wis','cha'].map(a=>`<option value="${a}" ${atk.saveAbility===a?'selected':''}>${a.toUpperCase()}</option>`).join('')}
+      </select>
+      <input type="number" data-bind="${base}.attacks.${i}.saveDC" data-type="number" value="${atk.saveDC}" style="width:50px;" title="Save DC">
+      <select data-bind="${base}.attacks.${i}.saveEffect" data-type="text" style="width:100px;" title="What a successful save does to the damage">
+        <option value="half" ${atk.saveEffect==='half'?'selected':''}>half on save</option>
+        <option value="none" ${atk.saveEffect==='none'?'selected':''}>none on save</option>
+        <option value="other" ${atk.saveEffect==='other'?'selected':''}>other (notes)</option>
+      </select>
+    ` : `
+      <input type="number" data-bind="${base}.attacks.${i}.toHit" data-type="number" value="${atk.toHit}" style="width:56px;" title="Attack bonus">
+    `}
+    <input type="text" data-bind="${base}.attacks.${i}.damage" data-type="text" value="${escapeAttr(atk.damage)}" placeholder="1d6+2" style="width:70px;" title="Damage">
+    <input type="text" data-bind="${base}.attacks.${i}.damageType" data-type="text" value="${escapeAttr(atk.damageType||'')}" placeholder="type" style="width:80px;">
+    <input type="text" data-bind="${base}.attacks.${i}.notes" data-type="text" value="${escapeAttr(atk.notes||'')}" placeholder="range / notes" style="flex:2;min-width:100px;">
+    <button class="remove-btn" data-action="remove-enemy-attack" data-idx="${idx}" data-item="${i}">✕</button>
+    <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
+      <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
+        <select data-bind="${base}.attacks.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
+      </label>
+      <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" title="${isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit'}" ${canFire?'':'disabled'}>🎲 ${isSave?'Cast':'Attack'}</button>
+    </div>
+    <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
+      <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Recharge on
+        <input type="number" min="1" max="6" data-bind="${base}.attacks.${i}.recharge" data-type="rechargeslot" value="${atk.recharge??''}" style="width:44px;" placeholder="—" title="e.g. 6 for &quot;recharge 6&quot;, 5 for &quot;recharge 5–6&quot;. Leave blank for an at-will attack.">
+      </label>
+      ${rechargeSet ? `<span class="hint" style="color:${atk.rechargeAvailable?'var(--moss)':'var(--ember)'};margin:0;">${atk.rechargeAvailable?'Ready':'Spent — needs to recharge'}</span>
+        <button class="btn" data-action="roll-recharge" data-idx="${idx}" data-atk="${i}" style="padding:3px 8px;">🎲 Roll recharge</button>` : ''}
+    </div>
+  </div>`;
+}
+
 function renderEnemySheet(en, idx){
   const base = `enemies.${idx}`;
   const hpPct = Math.max(0, Math.min(100, (en.hp.current/Math.max(1,en.hp.max))*100));
@@ -110,57 +166,7 @@ function renderEnemySheet(en, idx){
     </div>`;
   }).join('');
 
-  const targetableChars = state.campaign.characters||[];
-  const targetableNpcs = (state.campaign.npcs||[]).filter(n=>n.hasCombatStats);
-  const attackRows = (en.attacks||[]).map((atk,i)=>{
-    ensureAttackFields(atk);
-    const rechargeSet = atk.recharge != null;
-    const canFire = !rechargeSet || atk.rechargeAvailable;
-    const isSave = atk.attackType==='save';
-    const targetOptions = `
-      <option value="">— no target (just roll) —</option>
-      ${targetableChars.length ? `<optgroup label="Party">${targetableChars.map(pc=>`<option value="pc:${pc.id}" ${atk.targetKind==='pc'&&atk.targetId===pc.id?'selected':''}>${escapeHtml(pc.name)} (AC ${effectiveAC(pc)})</option>`).join('')}</optgroup>` : ''}
-      ${targetableNpcs.length ? `<optgroup label="NPCs">${targetableNpcs.map(npc=>`<option value="npc:${npc.id}" ${atk.targetKind==='npc'&&atk.targetId===npc.id?'selected':''}>${escapeHtml(npc.name)} (AC ${npc.ac})</option>`).join('')}</optgroup>` : ''}
-    `;
-    return `
-    <div class="item-row" style="flex-wrap:wrap;">
-      <input type="text" data-bind="${base}.attacks.${i}.name" data-type="text" value="${escapeAttr(atk.name)}" placeholder="Attack name" style="flex:2;min-width:110px;">
-      <select data-bind="${base}.attacks.${i}.attackType" data-type="text" style="width:110px;" title="Attack roll vs AC, or the target rolls a saving throw (e.g. most spell attacks)">
-        <option value="attack" ${!isSave?'selected':''}>Attack roll</option>
-        <option value="save" ${isSave?'selected':''}>Saving throw</option>
-      </select>
-      ${isSave ? `
-        <select data-bind="${base}.attacks.${i}.saveAbility" data-type="text" style="width:66px;" title="Which save the target rolls">
-          ${['str','dex','con','int','wis','cha'].map(a=>`<option value="${a}" ${atk.saveAbility===a?'selected':''}>${a.toUpperCase()}</option>`).join('')}
-        </select>
-        <input type="number" data-bind="${base}.attacks.${i}.saveDC" data-type="number" value="${atk.saveDC}" style="width:50px;" title="Save DC">
-        <select data-bind="${base}.attacks.${i}.saveEffect" data-type="text" style="width:100px;" title="What a successful save does to the damage">
-          <option value="half" ${atk.saveEffect==='half'?'selected':''}>half on save</option>
-          <option value="none" ${atk.saveEffect==='none'?'selected':''}>none on save</option>
-          <option value="other" ${atk.saveEffect==='other'?'selected':''}>other (notes)</option>
-        </select>
-      ` : `
-        <input type="number" data-bind="${base}.attacks.${i}.toHit" data-type="number" value="${atk.toHit}" style="width:56px;" title="Attack bonus">
-      `}
-      <input type="text" data-bind="${base}.attacks.${i}.damage" data-type="text" value="${escapeAttr(atk.damage)}" placeholder="1d6+2" style="width:70px;" title="Damage">
-      <input type="text" data-bind="${base}.attacks.${i}.damageType" data-type="text" value="${escapeAttr(atk.damageType||'')}" placeholder="type" style="width:80px;">
-      <input type="text" data-bind="${base}.attacks.${i}.notes" data-type="text" value="${escapeAttr(atk.notes||'')}" placeholder="range / notes" style="flex:2;min-width:100px;">
-      <button class="remove-btn" data-action="remove-enemy-attack" data-idx="${idx}" data-item="${i}">✕</button>
-      <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
-          <select data-bind="${base}.attacks.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
-        </label>
-        <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" title="${isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit'}" ${canFire?'':'disabled'}>🎲 ${isSave?'Cast':'Attack'}</button>
-      </div>
-      <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Recharge on
-          <input type="number" min="1" max="6" data-bind="${base}.attacks.${i}.recharge" data-type="rechargeslot" value="${atk.recharge??''}" style="width:44px;" placeholder="—" title="e.g. 6 for &quot;recharge 6&quot;, 5 for &quot;recharge 5–6&quot;. Leave blank for an at-will attack.">
-        </label>
-        ${rechargeSet ? `<span class="hint" style="color:${atk.rechargeAvailable?'var(--moss)':'var(--ember)'};margin:0;">${atk.rechargeAvailable?'Ready':'Spent — needs to recharge'}</span>
-          <button class="btn" data-action="roll-recharge" data-idx="${idx}" data-atk="${i}" style="padding:3px 8px;">🎲 Roll recharge</button>` : ''}
-      </div>
-    </div>`;
-  }).join('');
+  const attackRows = (en.attacks||[]).map((atk,i)=>renderEnemyAttackRow(en, idx, atk, i)).join('');
 
   const traitRows = (en.traits||[]).map((tr,i)=>`
     <div class="item-row" style="flex-wrap:wrap;">

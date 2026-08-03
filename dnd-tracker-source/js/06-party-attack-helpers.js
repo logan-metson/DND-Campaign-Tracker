@@ -50,6 +50,37 @@ function weaponAbilityKey(ch, it, parsed){
 function weaponAttackBonus(ch, it, abilityKey){
   return abilityMod(ch.abilities[abilityKey]) + (it.atkProficient ? profBonus(ch.level) : 0);
 }
+// The to-hit/damage/target row shown under an equipped weapon — shared between the character's
+// Inventory list (js/10) and the Battle Console (js/14a), so there's exactly one place that computes
+// the attack bonus and builds the Attack button, never two copies to drift apart. Returns '' for a
+// non-equipped or non-weapon item (no Attack row to show).
+function renderWeaponAttackRow(ch, idx, it, i, aliveEnemies){
+  const weaponInfo = it.equipped ? parseWeaponFromTags(it.tags) : null;
+  if(!weaponInfo) return '';
+  const base = `characters.${idx}`;
+  const abilityKey = weaponAbilityKey(ch, it, weaponInfo);
+  const bonus = weaponAttackBonus(ch, it, abilityKey);
+  const targetOptions = `
+    <option value="">— no target (just roll) —</option>
+    ${aliveEnemies.map(en=>`<option value="enemy:${en.id}" ${it.targetKind==='enemy'&&it.targetId===en.id?'selected':''}>${escapeHtml(en.name)} (AC ${en.ac})</option>`).join('')}
+  `;
+  return `
+  <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;background:var(--panel);border:1px dashed var(--line);border-radius:6px;padding:6px;">
+    <span class="hint" style="margin:0;font-family:var(--font-mono);">${escapeHtml(weaponInfo.damage)}${weaponInfo.damageType?' '+escapeHtml(weaponInfo.damageType):''} · ${fmtMod(bonus)} to hit</span>
+    <select data-bind="${base}.inventory.${i}.atkAbility" data-type="text" style="width:130px;" title="Which ability this attack rolls with">
+      <option value="auto" ${it.atkAbility==='auto'?'selected':''}>Auto (${weaponInfo.isFinesse?'finesse':(weaponInfo.isRanged?'DEX':'STR')})</option>
+      <option value="str" ${it.atkAbility==='str'?'selected':''}>STR</option>
+      <option value="dex" ${it.atkAbility==='dex'?'selected':''}>DEX</option>
+    </select>
+    <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">
+      <input type="checkbox" data-bind="${base}.inventory.${i}.atkProficient" data-type="checkbox" ${it.atkProficient?'checked':''} style="width:auto;"> proficient
+    </label>
+    <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
+      <select data-bind="${base}.inventory.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
+    </label>
+    <button class="step-btn" data-action="roll-weapon-attack" data-idx="${idx}" data-item="${i}" title="Rolls to hit and, on a hit, damage — applies it automatically if a target is picked">🎲 Attack</button>
+  </div>`;
+}
 // A spell attack's to-hit bonus and save DC both use the same proficiency-bonus + spellcasting-
 // ability-modifier math — 'none' means the character has no spellcasting ability set yet.
 function spellAttackBonus(ch){
@@ -87,6 +118,8 @@ function ensureCombatFields(entity){
   if(entity.initiativeBonus===undefined) entity.initiativeBonus = 0;
   if(entity.initiativeMode===undefined) entity.initiativeMode = 'normal';
   if(entity.surprised===undefined) entity.surprised = false;
+  if(entity.actionUsed===undefined) entity.actionUsed = false;
+  if(entity.bonusActionUsed===undefined) entity.bonusActionUsed = false;
   if(entity.inventory){
     entity.inventory.forEach(ensureItemBonuses);
     entity.inventory.forEach(ensureItemGrantsSpells);
