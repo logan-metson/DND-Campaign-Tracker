@@ -331,32 +331,7 @@ function renderCharacterSheet(ch, idx){
     ensureItemAtkFields(it);
     const isExpanded = state.expandedItemIds.has(it.id);
     const summary = summarizeItemBonuses(it.bonuses);
-    const weaponInfo = it.equipped ? parseWeaponFromTags(it.tags) : null;
-    let weaponAttackBlock = '';
-    if(weaponInfo){
-      const abilityKey = weaponAbilityKey(ch, it, weaponInfo);
-      const bonus = weaponAttackBonus(ch, it, abilityKey);
-      const targetOptions = `
-        <option value="">— no target (just roll) —</option>
-        ${aliveEnemies.map(en=>`<option value="enemy:${en.id}" ${it.targetKind==='enemy'&&it.targetId===en.id?'selected':''}>${escapeHtml(en.name)} (AC ${en.ac})</option>`).join('')}
-      `;
-      weaponAttackBlock = `
-      <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;background:var(--panel);border:1px dashed var(--line);border-radius:6px;padding:6px;">
-        <span class="hint" style="margin:0;font-family:var(--font-mono);">${escapeHtml(weaponInfo.damage)}${weaponInfo.damageType?' '+escapeHtml(weaponInfo.damageType):''} · ${fmtMod(bonus)} to hit</span>
-        <select data-bind="${base}.inventory.${i}.atkAbility" data-type="text" style="width:130px;" title="Which ability this attack rolls with">
-          <option value="auto" ${it.atkAbility==='auto'?'selected':''}>Auto (${weaponInfo.isFinesse?'finesse':(weaponInfo.isRanged?'DEX':'STR')})</option>
-          <option value="str" ${it.atkAbility==='str'?'selected':''}>STR</option>
-          <option value="dex" ${it.atkAbility==='dex'?'selected':''}>DEX</option>
-        </select>
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">
-          <input type="checkbox" data-bind="${base}.inventory.${i}.atkProficient" data-type="checkbox" ${it.atkProficient?'checked':''} style="width:auto;"> proficient
-        </label>
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
-          <select data-bind="${base}.inventory.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
-        </label>
-        <button class="step-btn" data-action="roll-weapon-attack" data-idx="${idx}" data-item="${i}" title="Rolls to hit and, on a hit, damage — applies it automatically if a target is picked">🎲 Attack</button>
-      </div>`;
-    }
+    const weaponAttackBlock = renderWeaponAttackRow(ch, idx, it, i, aliveEnemies);
     const bonusFields = BONUS_FIELD_DEFS.map(f=>`
       <div style="width:56px;">
         <label style="font-size:10px;">${f.label}</label>

@@ -905,6 +905,13 @@ function currentCombatRef(camp){
 function onNewCombatRound(camp){
   (camp.enemies||[]).forEach(en=>{ if((en.legendaryActionsMax||0) > 0) en.legendaryActionsUsed = 0; });
 }
+// Action/bonus action refresh at the start of THIS combatant's own turn (not tied to round
+// boundaries — see advanceCombatTurn and start-combat, the only two places a turn actually begins).
+function resetActionEconomy(ref){
+  if(!ref) return;
+  ref.actionUsed = false;
+  ref.bonusActionUsed = false;
+}
 // Moves the turn pointer forward (dir=1) or back (dir=-1), rolling over into the next/previous
 // round at the ends of the order. Skips past any combatant that's been removed since combat
 // started (currentCombatRef returns null for them) and past any enemy that's since died or fled
@@ -924,6 +931,15 @@ function advanceCombatTurn(camp, dir){
     guard++;
     cur = currentCombatRef(camp);
   } while((!cur || (cur.kind==='enemy' && cur.ref.status!=='alive')) && guard <= n+1);
+  if(cur) resetActionEconomy(cur.ref);
+}
+// Only tracks action economy for whoever the combat tracker currently has "up" — an attack/cast
+// made outside anyone's active turn (no combat running, or off-turn) doesn't touch these flags at
+// all, since there's no turn for it to be accidentally-double-spent against.
+function markTurnActionUsed(camp, entity, isBonusAction){
+  const cur = currentCombatRef(camp);
+  if(!cur || cur.ref !== entity) return;
+  if(isBonusAction) entity.bonusActionUsed = true; else entity.actionUsed = true;
 }
 
 function enemyFromPreset(preset, label){
@@ -1518,6 +1534,37 @@ function weaponAbilityKey(ch, it, parsed){
 function weaponAttackBonus(ch, it, abilityKey){
   return abilityMod(ch.abilities[abilityKey]) + (it.atkProficient ? profBonus(ch.level) : 0);
 }
+// The to-hit/damage/target row shown under an equipped weapon — shared between the character's
+// Inventory list (js/10) and the Battle Console (js/14a), so there's exactly one place that computes
+// the attack bonus and builds the Attack button, never two copies to drift apart. Returns '' for a
+// non-equipped or non-weapon item (no Attack row to show).
+function renderWeaponAttackRow(ch, idx, it, i, aliveEnemies){
+  const weaponInfo = it.equipped ? parseWeaponFromTags(it.tags) : null;
+  if(!weaponInfo) return '';
+  const base = `characters.${idx}`;
+  const abilityKey = weaponAbilityKey(ch, it, weaponInfo);
+  const bonus = weaponAttackBonus(ch, it, abilityKey);
+  const targetOptions = `
+    <option value="">— no target (just roll) —</option>
+    ${aliveEnemies.map(en=>`<option value="enemy:${en.id}" ${it.targetKind==='enemy'&&it.targetId===en.id?'selected':''}>${escapeHtml(en.name)} (AC ${en.ac})</option>`).join('')}
+  `;
+  return `
+  <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;background:var(--panel);border:1px dashed var(--line);border-radius:6px;padding:6px;">
+    <span class="hint" style="margin:0;font-family:var(--font-mono);">${escapeHtml(weaponInfo.damage)}${weaponInfo.damageType?' '+escapeHtml(weaponInfo.damageType):''} · ${fmtMod(bonus)} to hit</span>
+    <select data-bind="${base}.inventory.${i}.atkAbility" data-type="text" style="width:130px;" title="Which ability this attack rolls with">
+      <option value="auto" ${it.atkAbility==='auto'?'selected':''}>Auto (${weaponInfo.isFinesse?'finesse':(weaponInfo.isRanged?'DEX':'STR')})</option>
+      <option value="str" ${it.atkAbility==='str'?'selected':''}>STR</option>
+      <option value="dex" ${it.atkAbility==='dex'?'selected':''}>DEX</option>
+    </select>
+    <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">
+      <input type="checkbox" data-bind="${base}.inventory.${i}.atkProficient" data-type="checkbox" ${it.atkProficient?'checked':''} style="width:auto;"> proficient
+    </label>
+    <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
+      <select data-bind="${base}.inventory.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
+    </label>
+    <button class="step-btn" data-action="roll-weapon-attack" data-idx="${idx}" data-item="${i}" title="Rolls to hit and, on a hit, damage — applies it automatically if a target is picked">🎲 Attack</button>
+  </div>`;
+}
 // A spell attack's to-hit bonus and save DC both use the same proficiency-bonus + spellcasting-
 // ability-modifier math — 'none' means the character has no spellcasting ability set yet.
 function spellAttackBonus(ch){
@@ -1555,6 +1602,8 @@ function ensureCombatFields(entity){
   if(entity.initiativeBonus===undefined) entity.initiativeBonus = 0;
   if(entity.initiativeMode===undefined) entity.initiativeMode = 'normal';
   if(entity.surprised===undefined) entity.surprised = false;
+  if(entity.actionUsed===undefined) entity.actionUsed = false;
+  if(entity.bonusActionUsed===undefined) entity.bonusActionUsed = false;
   if(entity.inventory){
     entity.inventory.forEach(ensureItemBonuses);
     entity.inventory.forEach(ensureItemGrantsSpells);
@@ -2130,32 +2179,7 @@ function renderCharacterSheet(ch, idx){
     ensureItemAtkFields(it);
     const isExpanded = state.expandedItemIds.has(it.id);
     const summary = summarizeItemBonuses(it.bonuses);
-    const weaponInfo = it.equipped ? parseWeaponFromTags(it.tags) : null;
-    let weaponAttackBlock = '';
-    if(weaponInfo){
-      const abilityKey = weaponAbilityKey(ch, it, weaponInfo);
-      const bonus = weaponAttackBonus(ch, it, abilityKey);
-      const targetOptions = `
-        <option value="">— no target (just roll) —</option>
-        ${aliveEnemies.map(en=>`<option value="enemy:${en.id}" ${it.targetKind==='enemy'&&it.targetId===en.id?'selected':''}>${escapeHtml(en.name)} (AC ${en.ac})</option>`).join('')}
-      `;
-      weaponAttackBlock = `
-      <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;background:var(--panel);border:1px dashed var(--line);border-radius:6px;padding:6px;">
-        <span class="hint" style="margin:0;font-family:var(--font-mono);">${escapeHtml(weaponInfo.damage)}${weaponInfo.damageType?' '+escapeHtml(weaponInfo.damageType):''} · ${fmtMod(bonus)} to hit</span>
-        <select data-bind="${base}.inventory.${i}.atkAbility" data-type="text" style="width:130px;" title="Which ability this attack rolls with">
-          <option value="auto" ${it.atkAbility==='auto'?'selected':''}>Auto (${weaponInfo.isFinesse?'finesse':(weaponInfo.isRanged?'DEX':'STR')})</option>
-          <option value="str" ${it.atkAbility==='str'?'selected':''}>STR</option>
-          <option value="dex" ${it.atkAbility==='dex'?'selected':''}>DEX</option>
-        </select>
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">
-          <input type="checkbox" data-bind="${base}.inventory.${i}.atkProficient" data-type="checkbox" ${it.atkProficient?'checked':''} style="width:auto;"> proficient
-        </label>
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
-          <select data-bind="${base}.inventory.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
-        </label>
-        <button class="step-btn" data-action="roll-weapon-attack" data-idx="${idx}" data-item="${i}" title="Rolls to hit and, on a hit, damage — applies it automatically if a target is picked">🎲 Attack</button>
-      </div>`;
-    }
+    const weaponAttackBlock = renderWeaponAttackRow(ch, idx, it, i, aliveEnemies);
     const bonusFields = BONUS_FIELD_DEFS.map(f=>`
       <div style="width:56px;">
         <label style="font-size:10px;">${f.label}</label>
@@ -2653,6 +2677,62 @@ function renderEnemies(){
   `;
 }
 
+// The full attack row (roll type, save/to-hit fields, target picker, recharge) — shared between the
+// enemy sheet's Attacks card (js/11) and the Battle Console (js/14a), so there's exactly one place
+// that builds it, never two copies to drift apart.
+function renderEnemyAttackRow(en, idx, atk, i){
+  ensureAttackFields(atk);
+  const base = `enemies.${idx}`;
+  const targetableChars = state.campaign.characters||[];
+  const targetableNpcs = (state.campaign.npcs||[]).filter(n=>n.hasCombatStats);
+  const rechargeSet = atk.recharge != null;
+  const canFire = !rechargeSet || atk.rechargeAvailable;
+  const isSave = atk.attackType==='save';
+  const targetOptions = `
+    <option value="">— no target (just roll) —</option>
+    ${targetableChars.length ? `<optgroup label="Party">${targetableChars.map(pc=>`<option value="pc:${pc.id}" ${atk.targetKind==='pc'&&atk.targetId===pc.id?'selected':''}>${escapeHtml(pc.name)} (AC ${effectiveAC(pc)})</option>`).join('')}</optgroup>` : ''}
+    ${targetableNpcs.length ? `<optgroup label="NPCs">${targetableNpcs.map(npc=>`<option value="npc:${npc.id}" ${atk.targetKind==='npc'&&atk.targetId===npc.id?'selected':''}>${escapeHtml(npc.name)} (AC ${npc.ac})</option>`).join('')}</optgroup>` : ''}
+  `;
+  return `
+  <div class="item-row" style="flex-wrap:wrap;">
+    <input type="text" data-bind="${base}.attacks.${i}.name" data-type="text" value="${escapeAttr(atk.name)}" placeholder="Attack name" style="flex:2;min-width:110px;">
+    <select data-bind="${base}.attacks.${i}.attackType" data-type="text" style="width:110px;" title="Attack roll vs AC, or the target rolls a saving throw (e.g. most spell attacks)">
+      <option value="attack" ${!isSave?'selected':''}>Attack roll</option>
+      <option value="save" ${isSave?'selected':''}>Saving throw</option>
+    </select>
+    ${isSave ? `
+      <select data-bind="${base}.attacks.${i}.saveAbility" data-type="text" style="width:66px;" title="Which save the target rolls">
+        ${['str','dex','con','int','wis','cha'].map(a=>`<option value="${a}" ${atk.saveAbility===a?'selected':''}>${a.toUpperCase()}</option>`).join('')}
+      </select>
+      <input type="number" data-bind="${base}.attacks.${i}.saveDC" data-type="number" value="${atk.saveDC}" style="width:50px;" title="Save DC">
+      <select data-bind="${base}.attacks.${i}.saveEffect" data-type="text" style="width:100px;" title="What a successful save does to the damage">
+        <option value="half" ${atk.saveEffect==='half'?'selected':''}>half on save</option>
+        <option value="none" ${atk.saveEffect==='none'?'selected':''}>none on save</option>
+        <option value="other" ${atk.saveEffect==='other'?'selected':''}>other (notes)</option>
+      </select>
+    ` : `
+      <input type="number" data-bind="${base}.attacks.${i}.toHit" data-type="number" value="${atk.toHit}" style="width:56px;" title="Attack bonus">
+    `}
+    <input type="text" data-bind="${base}.attacks.${i}.damage" data-type="text" value="${escapeAttr(atk.damage)}" placeholder="1d6+2" style="width:70px;" title="Damage">
+    <input type="text" data-bind="${base}.attacks.${i}.damageType" data-type="text" value="${escapeAttr(atk.damageType||'')}" placeholder="type" style="width:80px;">
+    <input type="text" data-bind="${base}.attacks.${i}.notes" data-type="text" value="${escapeAttr(atk.notes||'')}" placeholder="range / notes" style="flex:2;min-width:100px;">
+    <button class="remove-btn" data-action="remove-enemy-attack" data-idx="${idx}" data-item="${i}">✕</button>
+    <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
+      <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
+        <select data-bind="${base}.attacks.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
+      </label>
+      <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" title="${isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit'}" ${canFire?'':'disabled'}>🎲 ${isSave?'Cast':'Attack'}</button>
+    </div>
+    <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
+      <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Recharge on
+        <input type="number" min="1" max="6" data-bind="${base}.attacks.${i}.recharge" data-type="rechargeslot" value="${atk.recharge??''}" style="width:44px;" placeholder="—" title="e.g. 6 for &quot;recharge 6&quot;, 5 for &quot;recharge 5–6&quot;. Leave blank for an at-will attack.">
+      </label>
+      ${rechargeSet ? `<span class="hint" style="color:${atk.rechargeAvailable?'var(--moss)':'var(--ember)'};margin:0;">${atk.rechargeAvailable?'Ready':'Spent — needs to recharge'}</span>
+        <button class="btn" data-action="roll-recharge" data-idx="${idx}" data-atk="${i}" style="padding:3px 8px;">🎲 Roll recharge</button>` : ''}
+    </div>
+  </div>`;
+}
+
 function renderEnemySheet(en, idx){
   const base = `enemies.${idx}`;
   const hpPct = Math.max(0, Math.min(100, (en.hp.current/Math.max(1,en.hp.max))*100));
@@ -2668,57 +2748,7 @@ function renderEnemySheet(en, idx){
     </div>`;
   }).join('');
 
-  const targetableChars = state.campaign.characters||[];
-  const targetableNpcs = (state.campaign.npcs||[]).filter(n=>n.hasCombatStats);
-  const attackRows = (en.attacks||[]).map((atk,i)=>{
-    ensureAttackFields(atk);
-    const rechargeSet = atk.recharge != null;
-    const canFire = !rechargeSet || atk.rechargeAvailable;
-    const isSave = atk.attackType==='save';
-    const targetOptions = `
-      <option value="">— no target (just roll) —</option>
-      ${targetableChars.length ? `<optgroup label="Party">${targetableChars.map(pc=>`<option value="pc:${pc.id}" ${atk.targetKind==='pc'&&atk.targetId===pc.id?'selected':''}>${escapeHtml(pc.name)} (AC ${effectiveAC(pc)})</option>`).join('')}</optgroup>` : ''}
-      ${targetableNpcs.length ? `<optgroup label="NPCs">${targetableNpcs.map(npc=>`<option value="npc:${npc.id}" ${atk.targetKind==='npc'&&atk.targetId===npc.id?'selected':''}>${escapeHtml(npc.name)} (AC ${npc.ac})</option>`).join('')}</optgroup>` : ''}
-    `;
-    return `
-    <div class="item-row" style="flex-wrap:wrap;">
-      <input type="text" data-bind="${base}.attacks.${i}.name" data-type="text" value="${escapeAttr(atk.name)}" placeholder="Attack name" style="flex:2;min-width:110px;">
-      <select data-bind="${base}.attacks.${i}.attackType" data-type="text" style="width:110px;" title="Attack roll vs AC, or the target rolls a saving throw (e.g. most spell attacks)">
-        <option value="attack" ${!isSave?'selected':''}>Attack roll</option>
-        <option value="save" ${isSave?'selected':''}>Saving throw</option>
-      </select>
-      ${isSave ? `
-        <select data-bind="${base}.attacks.${i}.saveAbility" data-type="text" style="width:66px;" title="Which save the target rolls">
-          ${['str','dex','con','int','wis','cha'].map(a=>`<option value="${a}" ${atk.saveAbility===a?'selected':''}>${a.toUpperCase()}</option>`).join('')}
-        </select>
-        <input type="number" data-bind="${base}.attacks.${i}.saveDC" data-type="number" value="${atk.saveDC}" style="width:50px;" title="Save DC">
-        <select data-bind="${base}.attacks.${i}.saveEffect" data-type="text" style="width:100px;" title="What a successful save does to the damage">
-          <option value="half" ${atk.saveEffect==='half'?'selected':''}>half on save</option>
-          <option value="none" ${atk.saveEffect==='none'?'selected':''}>none on save</option>
-          <option value="other" ${atk.saveEffect==='other'?'selected':''}>other (notes)</option>
-        </select>
-      ` : `
-        <input type="number" data-bind="${base}.attacks.${i}.toHit" data-type="number" value="${atk.toHit}" style="width:56px;" title="Attack bonus">
-      `}
-      <input type="text" data-bind="${base}.attacks.${i}.damage" data-type="text" value="${escapeAttr(atk.damage)}" placeholder="1d6+2" style="width:70px;" title="Damage">
-      <input type="text" data-bind="${base}.attacks.${i}.damageType" data-type="text" value="${escapeAttr(atk.damageType||'')}" placeholder="type" style="width:80px;">
-      <input type="text" data-bind="${base}.attacks.${i}.notes" data-type="text" value="${escapeAttr(atk.notes||'')}" placeholder="range / notes" style="flex:2;min-width:100px;">
-      <button class="remove-btn" data-action="remove-enemy-attack" data-idx="${idx}" data-item="${i}">✕</button>
-      <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
-          <select data-bind="${base}.attacks.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
-        </label>
-        <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" title="${isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit'}" ${canFire?'':'disabled'}>🎲 ${isSave?'Cast':'Attack'}</button>
-      </div>
-      <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Recharge on
-          <input type="number" min="1" max="6" data-bind="${base}.attacks.${i}.recharge" data-type="rechargeslot" value="${atk.recharge??''}" style="width:44px;" placeholder="—" title="e.g. 6 for &quot;recharge 6&quot;, 5 for &quot;recharge 5–6&quot;. Leave blank for an at-will attack.">
-        </label>
-        ${rechargeSet ? `<span class="hint" style="color:${atk.rechargeAvailable?'var(--moss)':'var(--ember)'};margin:0;">${atk.rechargeAvailable?'Ready':'Spent — needs to recharge'}</span>
-          <button class="btn" data-action="roll-recharge" data-idx="${idx}" data-atk="${i}" style="padding:3px 8px;">🎲 Roll recharge</button>` : ''}
-      </div>
-    </div>`;
-  }).join('');
+  const attackRows = (en.attacks||[]).map((atk,i)=>renderEnemyAttackRow(en, idx, atk, i)).join('');
 
   const traitRows = (en.traits||[]).map((tr,i)=>`
     <div class="item-row" style="flex-wrap:wrap;">
@@ -3560,6 +3590,7 @@ function renderDice(){
   `).join('');
 
   return `
+    ${renderBattleConsole()}
     ${renderBattleInitiative()}
     <div class="card">
       <h3>Quick Roll</h3>
@@ -3624,6 +3655,123 @@ function renderSnapshots(){
   `;
 }
 
+// ---- Battle Console (Dice Roller tab, only shown once combat is actually running) ----
+// A single place to see and act on whoever's turn it currently is, without hopping to the Party or
+// Enemies tab — HP, AC, action economy, and every attack/spell they can take right now. Every button
+// here dispatches the exact same data-action handlers as the Party/Enemies sheets (roll-weapon-attack,
+// cast-spell, roll-attack, hp-step/enemy-hp-step) and reuses their render helpers (renderCastControls,
+// renderWeaponAttackRow, renderEnemyAttackRow) — this file only adds a compact *view* onto the same
+// state and the same business logic, never a second copy of either. The full sheet (skills, feats,
+// conditions, inventory editing) still lives on those tabs, same as before.
+
+function renderBattleConsole(){
+  const c = state.campaign;
+  if(!c.combat) return '';
+  const cur = currentCombatRef(c);
+  if(!cur) return '';
+  const { kind, ref } = cur;
+  const idx = kind==='pc' ? c.characters.indexOf(ref) : c.enemies.indexOf(ref);
+  const aliveEnemies = (c.enemies||[]).filter(en=>en.status==='alive');
+
+  const ac = kind==='pc' ? effectiveAC(ref) : ref.ac;
+  const hpPct = Math.max(0, Math.min(100, (ref.hp.current/Math.max(1,ref.hp.max))*100));
+  const hpColor = hpPct<25?'var(--ember)':(hpPct<60?'var(--brass)':'var(--moss)');
+  const hpAction = kind==='pc' ? 'hp-step' : 'enemy-hp-step';
+
+  const actionChip = (label, used, action)=>`
+    <button class="btn ${used?'danger':'primary'}" data-action="${action}" title="Auto-marked when this ${kind==='pc'?'character':'enemy'} attacks or casts — click to correct it by hand (e.g. Extra Attack, an off-turn reaction, or a feature that doesn't cost the normal action).">
+      ${label}: ${used ? '✓ used' : 'available'}
+    </button>`;
+
+  const body = kind==='pc' ? renderBattleConsolePc(ref, idx, aliveEnemies) : renderBattleConsoleEnemy(ref, idx);
+
+  return `
+    <div class="card" style="border-color:var(--brass);">
+      <h3>⚔ ${escapeHtml(ref.name)}'s turn <span class="hint" style="display:inline;">(${kind==='pc'?'party':'enemy'} · round ${c.combat.round})</span></h3>
+      <div class="row" style="align-items:center;flex-wrap:wrap;">
+        <div class="col" style="max-width:220px;">
+          <label>HP</label>
+          <div class="hp-row">
+            <button class="step-btn dmg" data-action="${hpAction}" data-idx="${idx}" data-amt="-1">−</button>
+            <strong style="font-family:var(--font-mono);white-space:nowrap;">${ref.hp.current}/${ref.hp.max}${ref.hp.temp?'+'+ref.hp.temp:''}</strong>
+            <button class="step-btn heal" data-action="${hpAction}" data-idx="${idx}" data-amt="1">+</button>
+          </div>
+          <div class="hp-bar-track"><div class="hp-bar-fill" style="width:${hpPct}%;background:${hpColor};"></div></div>
+        </div>
+        <div class="col" style="max-width:70px;"><label>AC</label><strong style="font-family:var(--font-mono);color:var(--brass);">${ac}</strong></div>
+        <div class="col" style="flex:none;">
+          <label>Action economy</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${actionChip('Action', ref.actionUsed, 'toggle-current-action')}
+            ${actionChip('Bonus Action', ref.bonusActionUsed, 'toggle-current-bonus-action')}
+          </div>
+        </div>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderBattleConsolePc(ch, idx, aliveEnemies){
+  ensureCharacterExtras(ch);
+  const base = `characters.${idx}`;
+
+  const slotLevels = [1,2,3,4,5,6,7,8,9].filter(lv=>(ch.spellcasting.slots[lv]||{}).max>0);
+  const slotSummary = slotLevels.length
+    ? slotLevels.map(lv=>{ const s = ch.spellcasting.slots[lv]; return `<span class="hint" style="font-family:var(--font-mono);margin-right:10px;">Lv${lv} ${s.current}/${s.max}</span>`; }).join('')
+    : `<span class="hint">No spell slots.</span>`;
+
+  const weaponRows = ch.inventory.map((it,i)=>{
+    ensureItemAtkFields(it);
+    const row = renderWeaponAttackRow(ch, idx, it, i, aliveEnemies);
+    if(!row) return '';
+    return `<div class="item-row" style="flex-wrap:wrap;"><strong style="flex-basis:100%;">${escapeHtml(it.name)}</strong>${row}</div>`;
+  }).join('');
+
+  const knownSpellRows = ch.spells.map((sp,i)=>{
+    ensureSpellCastFields(sp);
+    const meta = sp.index ? (state.srdSpellIndex||[]).find(s=>s.index===sp.index) : null;
+    return `<div class="spell-row" style="flex-wrap:wrap;">
+      <span style="flex:1;min-width:100px;">${escapeHtml(sp.name)} <span class="hint" style="display:inline;">Lv${sp.level}</span></span>
+      ${renderCastControls(ch, idx, sp, meta, 'known', `${base}.spells.${i}`, `data-source="known" data-spell-idx="${i}"`, aliveEnemies)}
+    </div>`;
+  }).join('');
+
+  const grantedSpellRows = allGrantedSpellsWithPaths(ch).map(({sourceType,sourceId,sourceName,spell:gs,path})=>{
+    ensureSpellCastFields(gs);
+    const meta = gs.index ? (state.srdSpellIndex||[]).find(s=>s.index===gs.index) : null;
+    const icon = sourceType==='feat' ? '⭐' : '🔮';
+    return `<div class="spell-row" style="flex-wrap:wrap;background:var(--panel);border:1px dashed var(--line);">
+      <span style="flex:1;min-width:100px;">${icon} ${escapeHtml(gs.name)} <span class="hint" style="display:inline;">Lv${gs.level}</span></span>
+      ${renderCastControls(ch, idx, gs, meta, sourceType, `${base}.${path}`, `data-source="${sourceType}" data-source-id="${sourceId}" data-spell-id="${gs.id}"`, aliveEnemies)}
+    </div>`;
+  }).join('');
+
+  const nothingToShow = !weaponRows && !knownSpellRows && !grantedSpellRows;
+
+  return `
+    <div class="hint" style="margin:8px 0;">Spell slots: ${slotSummary}</div>
+    ${weaponRows ? `<label style="margin-top:6px;">Equipped weapons</label>${weaponRows}` : ''}
+    ${(knownSpellRows || grantedSpellRows) ? `<label style="margin-top:6px;">Spells</label>${knownSpellRows}${grantedSpellRows}` : ''}
+    ${nothingToShow ? '<div class="empty-note">No equipped weapons or known spells yet — add some on the Party tab.</div>' : ''}
+    <div class="hint" style="margin-top:8px;">Full sheet, skills, conditions, and inventory editing are on the Party tab.</div>
+  `;
+}
+
+function renderBattleConsoleEnemy(en, idx){
+  const attackRows = (en.attacks||[]).map((atk,i)=>renderEnemyAttackRow(en, idx, atk, i)).join('');
+  ensureLegendaryFields(en);
+  const legendaryHint = en.legendaryActionsMax>0
+    ? `<div class="hint" style="margin-top:8px;">Legendary actions used: <strong style="color:${(en.legendaryActionsUsed||0)>=en.legendaryActionsMax?'var(--ember)':'var(--brass)'};">${en.legendaryActionsUsed||0}/${en.legendaryActionsMax}</strong> — spend or reset them on the Enemies tab.</div>`
+    : '';
+
+  return `
+    <label style="margin-top:8px;">Attacks</label>
+    ${attackRows || '<div class="empty-note">No attacks defined — add some on the Enemies tab.</div>'}
+    ${legendaryHint}
+    <div class="hint" style="margin-top:8px;">Full stat block, traits, and conditions are on the Enemies tab.</div>
+  `;
+}
 // ---------- event handling ----------
 let clickListenerAttached = false;
 function attachHandlers(){
@@ -4133,6 +4281,12 @@ async function onClick(e){
     const bonus = spellAttackBonus(ch), dc = spellSaveDC(ch);
     if(bonus===null){ showToast(`${ch.name} has no spellcasting ability set (see Spellcasting card).`); return; }
 
+    // Every remaining path below actually completes the cast — mark action economy once here rather
+    // than at each of the branches' individual consumeResource() calls. Bonus-action spells (e.g.
+    // Healing Word) are read from the SRD castingTime field; anything without SRD data (homebrew/
+    // custom spells) defaults to the Action, same as a normal attack.
+    markTurnActionUsed(c, ch, !!(meta && meta.castingTime && meta.castingTime.includes('bonus action')));
+
     const dmgFormula = spellDamageForCast(meta, castLevel, ch.level);
     const hasSave = !!(meta && meta.saveAbility);
 
@@ -4268,6 +4422,7 @@ async function onClick(e){
       hitNote = ` vs ${targetLabel}'s AC ${target.ac} — ${isHit?'HIT':'MISS'}`;
     }
     state.diceLog.unshift({ id: uid('roll'), timestamp: Date.now(), label: `${ch.name} — ${it.name||'weapon'} (to hit${hitNote})`, total: attackTotal, breakdown: `${detail} ${fmtMod(bonus)}` });
+    markTurnActionUsed(c, ch, false); // weapon attacks always cost the Action — toggle it back manually for an off-turn or extra-attack swing
     if(isHit===false){
       showToast(`${it.name||'Attack'} misses ${targetLabel}.`);
       persistDiceLog();
@@ -4755,11 +4910,22 @@ async function onClick(e){
     if(!ordered.length){ showToast('Roll initiative for at least one combatant first.'); return; }
     onNewCombatRound(c); // fresh fight, fresh legendary-action pools
     c.combat = { round: 1, turnIndex: 0, order: ordered.map(({kind,ref})=>({id:ref.id, kind, name:ref.name})) };
+    resetActionEconomy(ordered[0].ref);
     showToast(`Combat started — round 1, ${ordered[0].ref.name}'s turn.`);
     render();
   }
   else if(action==='next-turn'){ advanceCombatTurn(c, 1); render(); }
   else if(action==='prev-turn'){ advanceCombatTurn(c, -1); render(); }
+  else if(action==='toggle-current-action'){
+    const cur = currentCombatRef(c);
+    if(cur) cur.ref.actionUsed = !cur.ref.actionUsed;
+    render();
+  }
+  else if(action==='toggle-current-bonus-action'){
+    const cur = currentCombatRef(c);
+    if(cur) cur.ref.bonusActionUsed = !cur.ref.bonusActionUsed;
+    render();
+  }
   else if(action==='end-combat'){ c.combat = null; render(); }
 
   else if(action==='add-enemy-attack'){
@@ -4778,6 +4944,7 @@ async function onClick(e){
     const atk = en.attacks[ai];
     ensureAttackFields(atk);
     if(atk.recharge!=null && !atk.rechargeAvailable){ showToast(`${atk.name||'That attack'} hasn't recharged yet.`); return; }
+    markTurnActionUsed(c, en, false); // enemy attacks are treated as the Action, same simplification as PC weapon attacks
 
     // Resolve the chosen target (if any) to its live character/NPC object.
     let target = null, targetLabel = '';

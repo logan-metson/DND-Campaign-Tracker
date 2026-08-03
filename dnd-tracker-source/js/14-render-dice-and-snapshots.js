@@ -66,6 +66,7 @@ function renderDice(){
   `).join('');
 
   return `
+    ${renderBattleConsole()}
     ${renderBattleInitiative()}
     <div class="card">
       <h3>Quick Roll</h3>
