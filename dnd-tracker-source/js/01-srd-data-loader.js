@@ -43,11 +43,14 @@ function classSpellListFor(ch){
   return null;
 }
 
-async function getSpellDetail(index){
+// Plain synchronous lookups, not async — the SRD bundle is fully in memory (see js/01's header),
+// there's nothing here to actually await. Kept non-async so callers never cross a real suspension
+// point over what's just an array lookup.
+function getSpellDetail(index){
   return (state.srdSpellIndex||[]).find(s=>s.index===index) || null;
 }
 
-async function getEquipmentDetail(index){
+function getEquipmentDetail(index){
   return (state.srdEquipmentIndex||[]).find(s=>s.index===index) || null;
 }
 

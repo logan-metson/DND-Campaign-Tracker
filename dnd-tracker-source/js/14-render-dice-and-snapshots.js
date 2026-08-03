@@ -67,6 +67,7 @@ function renderDice(){
 
   return `
     ${renderBattleConsole()}
+    ${renderCombatantHpStrip()}
     ${renderBattleInitiative()}
     <div class="card">
       <h3>Quick Roll</h3>

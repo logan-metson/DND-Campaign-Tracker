@@ -364,11 +364,14 @@ function classSpellListFor(ch){
   return null;
 }
 
-async function getSpellDetail(index){
+// Plain synchronous lookups, not async — the SRD bundle is fully in memory (see js/01's header),
+// there's nothing here to actually await. Kept non-async so callers never cross a real suspension
+// point over what's just an array lookup.
+function getSpellDetail(index){
   return (state.srdSpellIndex||[]).find(s=>s.index===index) || null;
 }
 
-async function getEquipmentDetail(index){
+function getEquipmentDetail(index){
   return (state.srdEquipmentIndex||[]).find(s=>s.index===index) || null;
 }
 
@@ -1111,7 +1114,7 @@ function renderCastControls(ch, idx, sp, meta, source, bindBase, clickAttrs, ali
     return `
     <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
       ${slotSelect}
-      <button class="btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} ${canCast?'':'disabled'} title="No automatic attack roll or save for this spell — just spends the slot and logs the cast">Cast (spend slot)</button>
+      <button class="btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} style="${canCast?'':'opacity:0.55;'}" title="${canCast ? 'No automatic attack roll or save for this spell — just spends the slot and logs the cast' : 'Out of slots for this level — clicking will explain why rather than doing nothing'}">Cast (spend slot)</button>
     </div>`;
   }
 
@@ -1125,7 +1128,7 @@ function renderCastControls(ch, idx, sp, meta, source, bindBase, clickAttrs, ali
         <select data-bind="${bindBase}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
       </label>
       ${slotSelect}
-      <button class="step-btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} ${canCast?'':'disabled'} title="${meta.saveAbility ? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls a spell attack against the target AC and applies damage on a hit'}">🎲 Cast</button>
+      <button class="step-btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} style="${canCast?'':'opacity:0.55;'}" title="${canCast ? (meta.saveAbility ? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls a spell attack against the target AC and applies damage on a hit') : 'Out of uses — clicking will explain why rather than doing nothing'}">🎲 Cast</button>
     </div>`;
 }
 
@@ -2721,7 +2724,7 @@ function renderEnemyAttackRow(en, idx, atk, i){
       <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
         <select data-bind="${base}.attacks.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
       </label>
-      <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" title="${isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit'}" ${canFire?'':'disabled'}>🎲 ${isSave?'Cast':'Attack'}</button>
+      <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" style="${canFire?'':'opacity:0.55;'}" title="${canFire ? (isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit') : 'Not recharged yet — clicking will explain why rather than doing nothing'}">🎲 ${isSave?'Cast':'Attack'}</button>
     </div>
     <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
       <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Recharge on
@@ -3591,6 +3594,7 @@ function renderDice(){
 
   return `
     ${renderBattleConsole()}
+    ${renderCombatantHpStrip()}
     ${renderBattleInitiative()}
     <div class="card">
       <h3>Quick Roll</h3>
@@ -3731,8 +3735,10 @@ function renderBattleConsolePc(ch, idx, aliveEnemies){
   const knownSpellRows = ch.spells.map((sp,i)=>{
     ensureSpellCastFields(sp);
     const meta = sp.index ? (state.srdSpellIndex||[]).find(s=>s.index===sp.index) : null;
+    const statLine = spellStatLine(meta);
     return `<div class="spell-row" style="flex-wrap:wrap;">
       <span style="flex:1;min-width:100px;">${escapeHtml(sp.name)} <span class="hint" style="display:inline;">Lv${sp.level}</span></span>
+      ${statLine ? `<div class="hint" style="flex-basis:100%;color:var(--brass-dim);font-family:var(--font-mono);">${escapeHtml(statLine)}</div>` : ''}
       ${renderCastControls(ch, idx, sp, meta, 'known', `${base}.spells.${i}`, `data-source="known" data-spell-idx="${i}"`, aliveEnemies)}
     </div>`;
   }).join('');
@@ -3740,9 +3746,11 @@ function renderBattleConsolePc(ch, idx, aliveEnemies){
   const grantedSpellRows = allGrantedSpellsWithPaths(ch).map(({sourceType,sourceId,sourceName,spell:gs,path})=>{
     ensureSpellCastFields(gs);
     const meta = gs.index ? (state.srdSpellIndex||[]).find(s=>s.index===gs.index) : null;
+    const statLine = spellStatLine(meta);
     const icon = sourceType==='feat' ? '⭐' : '🔮';
     return `<div class="spell-row" style="flex-wrap:wrap;background:var(--panel);border:1px dashed var(--line);">
       <span style="flex:1;min-width:100px;">${icon} ${escapeHtml(gs.name)} <span class="hint" style="display:inline;">Lv${gs.level}</span></span>
+      ${statLine ? `<div class="hint" style="flex-basis:100%;color:var(--brass-dim);font-family:var(--font-mono);">${escapeHtml(statLine)}</div>` : ''}
       ${renderCastControls(ch, idx, gs, meta, sourceType, `${base}.${path}`, `data-source="${sourceType}" data-source-id="${sourceId}" data-spell-id="${gs.id}"`, aliveEnemies)}
     </div>`;
   }).join('');
@@ -3755,6 +3763,33 @@ function renderBattleConsolePc(ch, idx, aliveEnemies){
     ${(knownSpellRows || grantedSpellRows) ? `<label style="margin-top:6px;">Spells</label>${knownSpellRows}${grantedSpellRows}` : ''}
     ${nothingToShow ? '<div class="empty-note">No equipped weapons or known spells yet — add some on the Party tab.</div>' : ''}
     <div class="hint" style="margin-top:8px;">Full sheet, skills, conditions, and inventory editing are on the Party tab.</div>
+  `;
+}
+
+// Always-visible (not gated on active combat) quick-glance strip of every party member's and
+// enemy's HP, so a quick "who's actually hurt" check doesn't require leaving the Dice Roller tab.
+// Clicking a chip jumps straight to that character/enemy's full sheet, same as clicking it in its
+// own tab's chip row — a shortcut on top of the same select-char/select-enemy state, not a new copy.
+function renderCombatantHpStrip(){
+  const c = state.campaign;
+  if(!c.characters.length && !c.enemies.length) return '';
+  const curTurn = c.combat ? currentCombatRef(c) : null;
+  const chip = (kind, ref)=>{
+    const isCurrent = curTurn && curTurn.kind===kind && curTurn.id===ref.id;
+    const cls = kind==='pc' ? 'char-chip' : 'char-chip enemy-chip';
+    return `<div class="${cls} status-${ref.status}" data-action="${kind==='pc'?'jump-to-char':'jump-to-enemy'}" data-id="${ref.id}" style="cursor:pointer;${isCurrent?'box-shadow:inset 0 0 0 2px var(--brass);':''}">
+      <span>${escapeHtml(ref.name)}</span>
+      <span class="hp-tag">${ref.hp.current}/${ref.hp.max}${ref.hp.temp?('+'+ref.hp.temp):''}</span>
+    </div>`;
+  };
+  return `
+    <div class="card">
+      <h3>Party &amp; Enemy HP</h3>
+      <div class="char-chips" style="margin-bottom:0;">
+        ${c.characters.map(ch=>chip('pc', ch)).join('')}
+        ${c.enemies.map(en=>chip('enemy', en)).join('')}
+      </div>
+    </div>
   `;
 }
 
@@ -4063,6 +4098,8 @@ async function onClick(e){
   if(action==='set-tab'){ state.activeTab = btn.dataset.tab; render(); }
 
   else if(action==='select-char'){ state.activeCharId = btn.dataset.id; render(); }
+  else if(action==='jump-to-char'){ state.activeTab = 'party'; state.activeCharId = btn.dataset.id; render(); }
+  else if(action==='jump-to-enemy'){ state.activeTab = 'enemies'; state.activeEnemyId = btn.dataset.id; render(); }
 
   else if(action==='add-char'){
     const ch = blankCharacter('New Adventurer');
@@ -4209,7 +4246,7 @@ async function onClick(e){
   else if(action==='pick-spell'){
     const idx = Number(btn.dataset.idx);
     const spellIndex = btn.dataset.spellIndex;
-    const detail = await getSpellDetail(spellIndex);
+    const detail = getSpellDetail(spellIndex);
     c.characters[idx].spells.push({
       id: uid('spell'), index: spellIndex,
       name: detail ? detail.name : spellIndex,
@@ -4374,7 +4411,7 @@ async function onClick(e){
   else if(action==='pick-item'){
     const idx = Number(btn.dataset.idx);
     const equipIndex = btn.dataset.equipIndex;
-    const detail = await getEquipmentDetail(equipIndex);
+    const detail = getEquipmentDetail(equipIndex);
     const tags = detail ? [detail.summary, detail.weight, detail.cost].filter(Boolean).join(' · ') : '';
     const parsedWeight = detail && detail.weight ? (parseFloat(String(detail.weight).replace(/[^\d.]/g,'')) || 0) : 0;
     c.characters[idx].inventory.push({
@@ -4450,7 +4487,7 @@ async function onClick(e){
   }
   else if(action==='pick-party-item'){
     const equipIndex = btn.dataset.equipIndex;
-    const detail = await getEquipmentDetail(equipIndex);
+    const detail = getEquipmentDetail(equipIndex);
     const tags = detail ? [detail.summary, detail.weight, detail.cost].filter(Boolean).join(' · ') : '';
     const parsedWeight = detail && detail.weight ? (parseFloat(String(detail.weight).replace(/[^\d.]/g,'')) || 0) : 0;
     c.partyInventory.push({
@@ -4521,7 +4558,7 @@ async function onClick(e){
   else if(action==='pick-granted-spell'){
     const idx = Number(btn.dataset.idx), item = Number(btn.dataset.item);
     const spellIndex = btn.dataset.spellIndex;
-    const detail = await getSpellDetail(spellIndex);
+    const detail = getSpellDetail(spellIndex);
     const it = c.characters[idx].inventory[item];
     ensureItemGrantsSpells(it);
     it.grantsSpells.push({
@@ -4559,7 +4596,7 @@ async function onClick(e){
   else if(action==='pick-granted-spell-feat'){
     const idx = Number(btn.dataset.idx), item = Number(btn.dataset.item);
     const spellIndex = btn.dataset.spellIndex;
-    const detail = await getSpellDetail(spellIndex);
+    const detail = getSpellDetail(spellIndex);
     const ft = c.characters[idx].feats[item];
     ensureFeatGrantsSpells(ft);
     ft.grantsSpells.push({

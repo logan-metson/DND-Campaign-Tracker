@@ -90,7 +90,7 @@ function renderCastControls(ch, idx, sp, meta, source, bindBase, clickAttrs, ali
     return `
     <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
       ${slotSelect}
-      <button class="btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} ${canCast?'':'disabled'} title="No automatic attack roll or save for this spell — just spends the slot and logs the cast">Cast (spend slot)</button>
+      <button class="btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} style="${canCast?'':'opacity:0.55;'}" title="${canCast ? 'No automatic attack roll or save for this spell — just spends the slot and logs the cast' : 'Out of slots for this level — clicking will explain why rather than doing nothing'}">Cast (spend slot)</button>
     </div>`;
   }
 
@@ -104,7 +104,7 @@ function renderCastControls(ch, idx, sp, meta, source, bindBase, clickAttrs, ali
         <select data-bind="${bindBase}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
       </label>
       ${slotSelect}
-      <button class="step-btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} ${canCast?'':'disabled'} title="${meta.saveAbility ? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls a spell attack against the target AC and applies damage on a hit'}">🎲 Cast</button>
+      <button class="step-btn" data-action="cast-spell" data-idx="${idx}" ${clickAttrs} style="${canCast?'':'opacity:0.55;'}" title="${canCast ? (meta.saveAbility ? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls a spell attack against the target AC and applies damage on a hit') : 'Out of uses — clicking will explain why rather than doing nothing'}">🎲 Cast</button>
     </div>`;
 }
 

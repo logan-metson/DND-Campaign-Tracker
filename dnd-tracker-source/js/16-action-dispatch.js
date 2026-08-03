@@ -22,6 +22,8 @@ async function onClick(e){
   if(action==='set-tab'){ state.activeTab = btn.dataset.tab; render(); }
 
   else if(action==='select-char'){ state.activeCharId = btn.dataset.id; render(); }
+  else if(action==='jump-to-char'){ state.activeTab = 'party'; state.activeCharId = btn.dataset.id; render(); }
+  else if(action==='jump-to-enemy'){ state.activeTab = 'enemies'; state.activeEnemyId = btn.dataset.id; render(); }
 
   else if(action==='add-char'){
     const ch = blankCharacter('New Adventurer');
@@ -168,7 +170,7 @@ async function onClick(e){
   else if(action==='pick-spell'){
     const idx = Number(btn.dataset.idx);
     const spellIndex = btn.dataset.spellIndex;
-    const detail = await getSpellDetail(spellIndex);
+    const detail = getSpellDetail(spellIndex);
     c.characters[idx].spells.push({
       id: uid('spell'), index: spellIndex,
       name: detail ? detail.name : spellIndex,
@@ -333,7 +335,7 @@ async function onClick(e){
   else if(action==='pick-item'){
     const idx = Number(btn.dataset.idx);
     const equipIndex = btn.dataset.equipIndex;
-    const detail = await getEquipmentDetail(equipIndex);
+    const detail = getEquipmentDetail(equipIndex);
     const tags = detail ? [detail.summary, detail.weight, detail.cost].filter(Boolean).join(' · ') : '';
     const parsedWeight = detail && detail.weight ? (parseFloat(String(detail.weight).replace(/[^\d.]/g,'')) || 0) : 0;
     c.characters[idx].inventory.push({
@@ -409,7 +411,7 @@ async function onClick(e){
   }
   else if(action==='pick-party-item'){
     const equipIndex = btn.dataset.equipIndex;
-    const detail = await getEquipmentDetail(equipIndex);
+    const detail = getEquipmentDetail(equipIndex);
     const tags = detail ? [detail.summary, detail.weight, detail.cost].filter(Boolean).join(' · ') : '';
     const parsedWeight = detail && detail.weight ? (parseFloat(String(detail.weight).replace(/[^\d.]/g,'')) || 0) : 0;
     c.partyInventory.push({
@@ -480,7 +482,7 @@ async function onClick(e){
   else if(action==='pick-granted-spell'){
     const idx = Number(btn.dataset.idx), item = Number(btn.dataset.item);
     const spellIndex = btn.dataset.spellIndex;
-    const detail = await getSpellDetail(spellIndex);
+    const detail = getSpellDetail(spellIndex);
     const it = c.characters[idx].inventory[item];
     ensureItemGrantsSpells(it);
     it.grantsSpells.push({
@@ -518,7 +520,7 @@ async function onClick(e){
   else if(action==='pick-granted-spell-feat'){
     const idx = Number(btn.dataset.idx), item = Number(btn.dataset.item);
     const spellIndex = btn.dataset.spellIndex;
-    const detail = await getSpellDetail(spellIndex);
+    const detail = getSpellDetail(spellIndex);
     const ft = c.characters[idx].feats[item];
     ensureFeatGrantsSpells(ft);
     ft.grantsSpells.push({

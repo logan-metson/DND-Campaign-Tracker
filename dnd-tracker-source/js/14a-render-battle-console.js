@@ -74,8 +74,10 @@ function renderBattleConsolePc(ch, idx, aliveEnemies){
   const knownSpellRows = ch.spells.map((sp,i)=>{
     ensureSpellCastFields(sp);
     const meta = sp.index ? (state.srdSpellIndex||[]).find(s=>s.index===sp.index) : null;
+    const statLine = spellStatLine(meta);
     return `<div class="spell-row" style="flex-wrap:wrap;">
       <span style="flex:1;min-width:100px;">${escapeHtml(sp.name)} <span class="hint" style="display:inline;">Lv${sp.level}</span></span>
+      ${statLine ? `<div class="hint" style="flex-basis:100%;color:var(--brass-dim);font-family:var(--font-mono);">${escapeHtml(statLine)}</div>` : ''}
       ${renderCastControls(ch, idx, sp, meta, 'known', `${base}.spells.${i}`, `data-source="known" data-spell-idx="${i}"`, aliveEnemies)}
     </div>`;
   }).join('');
@@ -83,9 +85,11 @@ function renderBattleConsolePc(ch, idx, aliveEnemies){
   const grantedSpellRows = allGrantedSpellsWithPaths(ch).map(({sourceType,sourceId,sourceName,spell:gs,path})=>{
     ensureSpellCastFields(gs);
     const meta = gs.index ? (state.srdSpellIndex||[]).find(s=>s.index===gs.index) : null;
+    const statLine = spellStatLine(meta);
     const icon = sourceType==='feat' ? '⭐' : '🔮';
     return `<div class="spell-row" style="flex-wrap:wrap;background:var(--panel);border:1px dashed var(--line);">
       <span style="flex:1;min-width:100px;">${icon} ${escapeHtml(gs.name)} <span class="hint" style="display:inline;">Lv${gs.level}</span></span>
+      ${statLine ? `<div class="hint" style="flex-basis:100%;color:var(--brass-dim);font-family:var(--font-mono);">${escapeHtml(statLine)}</div>` : ''}
       ${renderCastControls(ch, idx, gs, meta, sourceType, `${base}.${path}`, `data-source="${sourceType}" data-source-id="${sourceId}" data-spell-id="${gs.id}"`, aliveEnemies)}
     </div>`;
   }).join('');
@@ -98,6 +102,33 @@ function renderBattleConsolePc(ch, idx, aliveEnemies){
     ${(knownSpellRows || grantedSpellRows) ? `<label style="margin-top:6px;">Spells</label>${knownSpellRows}${grantedSpellRows}` : ''}
     ${nothingToShow ? '<div class="empty-note">No equipped weapons or known spells yet — add some on the Party tab.</div>' : ''}
     <div class="hint" style="margin-top:8px;">Full sheet, skills, conditions, and inventory editing are on the Party tab.</div>
+  `;
+}
+
+// Always-visible (not gated on active combat) quick-glance strip of every party member's and
+// enemy's HP, so a quick "who's actually hurt" check doesn't require leaving the Dice Roller tab.
+// Clicking a chip jumps straight to that character/enemy's full sheet, same as clicking it in its
+// own tab's chip row — a shortcut on top of the same select-char/select-enemy state, not a new copy.
+function renderCombatantHpStrip(){
+  const c = state.campaign;
+  if(!c.characters.length && !c.enemies.length) return '';
+  const curTurn = c.combat ? currentCombatRef(c) : null;
+  const chip = (kind, ref)=>{
+    const isCurrent = curTurn && curTurn.kind===kind && curTurn.id===ref.id;
+    const cls = kind==='pc' ? 'char-chip' : 'char-chip enemy-chip';
+    return `<div class="${cls} status-${ref.status}" data-action="${kind==='pc'?'jump-to-char':'jump-to-enemy'}" data-id="${ref.id}" style="cursor:pointer;${isCurrent?'box-shadow:inset 0 0 0 2px var(--brass);':''}">
+      <span>${escapeHtml(ref.name)}</span>
+      <span class="hp-tag">${ref.hp.current}/${ref.hp.max}${ref.hp.temp?('+'+ref.hp.temp):''}</span>
+    </div>`;
+  };
+  return `
+    <div class="card">
+      <h3>Party &amp; Enemy HP</h3>
+      <div class="char-chips" style="margin-bottom:0;">
+        ${c.characters.map(ch=>chip('pc', ch)).join('')}
+        ${c.enemies.map(en=>chip('enemy', en)).join('')}
+      </div>
+    </div>
   `;
 }
 

@@ -139,7 +139,7 @@ function renderEnemyAttackRow(en, idx, atk, i){
       <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Target
         <select data-bind="${base}.attacks.${i}.__target" data-type="target" style="min-width:150px;">${targetOptions}</select>
       </label>
-      <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" title="${isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit'}" ${canFire?'':'disabled'}>🎲 ${isSave?'Cast':'Attack'}</button>
+      <button class="step-btn" data-action="roll-attack" data-idx="${idx}" data-atk="${i}" style="${canFire?'':'opacity:0.55;'}" title="${canFire ? (isSave? 'Rolls the target save, rolls damage, and applies it automatically based on the result' : 'Rolls to-hit against the target AC (if one is picked), then damage, and applies it automatically on a hit') : 'Not recharged yet — clicking will explain why rather than doing nothing'}">🎲 ${isSave?'Cast':'Attack'}</button>
     </div>
     <div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px;">
       <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0;">Recharge on
