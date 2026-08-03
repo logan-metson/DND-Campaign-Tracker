@@ -1,0 +1,13 @@
+{
+  "name": "dnd-campaign-tracker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Source + build for the D&D campaign tracker single-file app.",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}
